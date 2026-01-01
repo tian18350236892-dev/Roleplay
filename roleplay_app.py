@@ -2,20 +2,48 @@ import streamlit as st
 from openai import OpenAI
 import datetime
 
-# --- 1. 页面配置 ---
-st.set_page_config(page_title="Ultech 实战考核系统", page_icon="🎓", layout="wide")
+# --- 1. Page Configuration ---
+st.set_page_config(page_title="Ultech Training Pro", page_icon="🎓", layout="wide")
 
-# --- 2. 样式优化 ---
+# --- 2. CSS Styling (Dark Mode Fix) ---
+# We force text color to BLACK inside the colored boxes so it's readable in Dark Mode.
 st.markdown("""
 <style>
-    .user-msg { background-color: #dcf8c6; padding: 10px; border-radius: 10px; margin-bottom: 10px; text-align: right; color: black; }
-    .bot-msg { background-color: #f0f2f6; padding: 10px; border-radius: 10px; margin-bottom: 10px; text-align: left; color: black; }
-    .score-box { border: 2px solid #4CAF50; padding: 20px; border-radius: 10px; background-color: #e8f5e9; margin-top: 20px; }
+    /* User Message Box (Green) */
+    .user-msg { 
+        background-color: #dcf8c6; 
+        padding: 10px; 
+        border-radius: 10px; 
+        margin-bottom: 10px; 
+        text-align: right; 
+        color: #000000 !important; /* Force Black Text */
+    }
+    
+    /* Bot Message Box (Grey) */
+    .bot-msg { 
+        background-color: #f0f2f6; 
+        padding: 10px; 
+        border-radius: 10px; 
+        margin-bottom: 10px; 
+        text-align: left; 
+        color: #000000 !important; /* Force Black Text */
+    }
+    
+    /* Score Report Box (Light Green) */
+    .score-box { 
+        border: 2px solid #4CAF50; 
+        padding: 20px; 
+        border-radius: 10px; 
+        background-color: #e8f5e9; 
+        margin-top: 20px; 
+        color: #1b5e20 !important; /* Force Dark Green/Black Text */
+    }
+    
     .stButton>button { width: 100%; border-radius: 5px; font-weight: bold; }
 </style>
 """, unsafe_allow_html=True)
 
-# --- 3. 角色库 (保持原有的丰富性) ---
+# --- 3. Personas (Scenarios) ---
 PERSONAS = {
     "🟢 The Aussie Tradie (Dazza)": """
         [Role] You are 'Dazza', a construction worker. [Personality] Friendly, heavy slang ("G'day", "Reckon").
@@ -50,71 +78,86 @@ PERSONAS = {
     """
 }
 
-# --- 4. 初始化 ---
+# --- 4. Initialization ---
 if "messages" not in st.session_state:
     st.session_state.messages = []
 if "report" not in st.session_state:
     st.session_state.report = None
+if "attempt_count" not in st.session_state:
+    st.session_state.attempt_count = 0
 
-# --- 5. 侧边栏：控制台 ---
+# --- 5. Sidebar: Settings & Controls ---
 with st.sidebar:
     st.image("https://cdn-icons-png.flaticon.com/512/3135/3135715.png", width=50)
-    st.title("Ultech 考核系统")
-    st.caption("实战演练 -> 智能评分 -> 导出报告")
+    st.title("Ultech Training System")
+    st.caption("Roleplay -> AI Grade -> Archive")
     
     api_key = st.text_input("OpenAI API Key", type="password")
+
+    st.markdown("---")
+    st.markdown("### 1. Staff Information")
+    user_name = st.text_input("Your Name (e.g., Justin)", placeholder="Required for archiving")
+    user_role = st.text_input("Role (e.g., Sales)", placeholder="Optional")
+
+    st.markdown("---")
+    st.markdown("### 2. Scenario Selection")
+    difficulty = st.selectbox("Filter Difficulty:", ["All", "🟢 Easy", "🟡 Medium", "🔴 Hard"])
     
-    st.markdown("### 1. 选择考题")
-    difficulty = st.selectbox("难度筛选:", ["全部", "🟢 简单", "🟡 进阶", "🔴 困难"])
-    
-    # 筛选逻辑
-    if difficulty == "🟢 简单":
+    # Filter Logic
+    if difficulty == "🟢 Easy":
         options = [k for k in PERSONAS.keys() if "🟢" in k]
-    elif difficulty == "🟡 进阶":
+    elif difficulty == "🟡 Medium":
         options = [k for k in PERSONAS.keys() if "🟡" in k]
-    elif difficulty == "🔴 困难":
+    elif difficulty == "🔴 Hard":
         options = [k for k in PERSONAS.keys() if "🔴" in k]
     else:
         options = list(PERSONAS.keys())
         
-    scenario = st.selectbox("当前角色:", options)
+    scenario = st.selectbox("Current Opponent:", options)
     
     st.markdown("---")
-    st.markdown("### 2. 结束与重置")
+    st.markdown("### 3. Controls")
     
-    # 结束考核按钮
-    if st.button("🏁 结束对话并评分 (Finish & Grade)"):
+    # Finish & Grade Button
+    if st.button("🏁 Finish & Grade"):
         if not api_key:
-            st.error("请先输入 API Key")
+            st.error("Please enter API Key.")
+        elif not user_name:
+            st.error("⚠️ Please enter your NAME above to save the record.")
         elif len(st.session_state.messages) < 3:
-            st.warning("对话太短，无法评分。请多聊几句。")
+            st.warning("Conversation too short to grade. Please chat more.")
         else:
-            with st.spinner("AI 考官正在分析你的表现..."):
+            # Increment attempt counter
+            st.session_state.attempt_count += 1
+            
+            with st.spinner("AI Supervisor is analyzing your performance..."):
                 client = OpenAI(api_key=api_key)
-                # 提取纯对话文本
+                # Extract text
                 conversation_text = ""
                 for m in st.session_state.messages:
                     if m["role"] != "system":
-                        conversation_text += f"{m['role'].upper()}: {m['content']}\n"
+                        role_label = "STAFF" if m["role"] == "user" else "CUSTOMER"
+                        conversation_text += f"{role_label}: {m['content']}\n"
                 
-                # 考官 Prompt
+                # Evaluation Prompt (English)
                 eval_prompt = f"""
-                你是一位资深的门店培训主管。请根据以下对话记录，对员工的表现进行严厉但客观的考核。
+                You are a strict Training Supervisor at a phone repair shop (Ultech). 
+                Evaluate the staff's performance based on the chat history below.
                 
-                【当前场景角色】: {scenario}
-                【SOP 考核点】:
-                1. 销售场景: 是否确认型号？是否做 Upsell？态度是否自然（非强推）？
-                2. 维修场景: 是否提示风险（数据/FaceID/进水）？是否打破期望（Timeline/Price）？
-                3. 客诉场景: 是否先共情？是否避免直接反驳？是否遵循 Escalation 流程？
+                [Scenario]: {scenario}
+                [SOP Checkpoints]:
+                1. Sales: Did they confirm the model? Did they upsell? Was the tone friendly (not pushy)?
+                2. Intake: Did they explain risks (Data/FaceID/Liquid)? Did they manage expectations?
+                3. Complaint: Did they use Empathy first? Did they avoid arguing? Did they follow escalation rules?
                 
-                【输出要求】:
-                请生成一份中文报告，包含：
-                1. **最终得分** (0-100分)
-                2. **亮点 (Highlights)**
-                3. **不足 (Weaknesses)** - 指出具体哪句话说错了或遗漏了什么 SOP。
-                4. **改进建议 (Action Plan)**
+                [Output Format]:
+                Generate a report in ENGLISH containing:
+                1. **Final Score** (0-100)
+                2. **Highlights** (What they did well)
+                3. **Weaknesses** (Specific mistakes based on SOP)
+                4. **Action Plan** (How to improve next time)
                 
-                【对话记录】:
+                [Chat History]:
                 {conversation_text}
                 """
                 
@@ -126,25 +169,28 @@ with st.sidebar:
                     )
                     st.session_state.report = res.choices[0].message.content
                 except Exception as e:
-                    st.error(f"评分失败: {e}")
+                    st.error(f"Grading Failed: {e}")
 
-    # 重置按钮
-    if st.button("🔄 开启新一轮 (Reset)"):
+    # Reset Button
+    if st.button("🔄 Start New Round"):
         st.session_state.messages = []
         st.session_state.report = None
         st.rerun()
 
-# --- 6. 主界面 ---
-st.title("🎓 Ultech 实战考核")
-st.subheader(f"正在对战: {scenario}")
+# --- 6. Main Interface ---
+st.title("🎓 Ultech Training - Live Roleplay")
+st.subheader(f"Scenario: {scenario}")
 
 if not api_key:
-    st.info("👈 请在左侧侧边栏输入 API Key 以开始。")
+    st.info("👈 Please enter API Key in the sidebar to start.")
     st.stop()
+
+if not user_name:
+    st.warning("👈 Please enter your NAME in the sidebar to ensure your score is recorded.")
 
 client = OpenAI(api_key=api_key)
 
-# 自动开场
+# Auto-start conversation
 if not st.session_state.messages:
     st.session_state.messages.append({"role": "system", "content": PERSONAS[scenario]})
     try:
@@ -156,7 +202,7 @@ if not st.session_state.messages:
     except:
         pass
 
-# 显示对话区（两栏布局：左边对话，右边如果生成了报告则显示报告）
+# Layout: Chat (Left) vs Report (Right)
 col1, col2 = st.columns([2, 1])
 
 with col1:
@@ -166,17 +212,18 @@ with col1:
             if msg["role"] == "user":
                 st.markdown(f"<div class='user-msg'>👤 <b>You:</b><br>{msg['content']}</div>", unsafe_allow_html=True)
             elif msg["role"] == "assistant":
-                st.markdown(f"<div class='bot-msg'>🦘 <b>{scenario.split('(')[0]}:</b><br>{msg['content']}</div>", unsafe_allow_html=True)
+                st.markdown(f"<div class='bot-msg'>🦘 <b>Customer:</b><br>{msg['content']}</div>", unsafe_allow_html=True)
 
-    # 输入框
-    if user_input := st.chat_input("请输入英文回复..."):
+    # Chat Input
+    # Disable input if name is missing (Optional strict mode, or just warning)
+    if user_input := st.chat_input("Type your response here..."):
         st.session_state.messages.append({"role": "user", "content": user_input})
         st.rerun()
 
-# AI 回复逻辑 (在重运行后触发)
+# AI Response Logic
 if st.session_state.messages and st.session_state.messages[-1]["role"] == "user":
     with col1:
-        with st.spinner("对方正在输入..."):
+        with st.spinner("Customer is replying..."):
             try:
                 response = client.chat.completions.create(
                     model="gpt-4o",
@@ -187,33 +234,43 @@ if st.session_state.messages and st.session_state.messages[-1]["role"] == "user"
                 st.session_state.messages.append({"role": "assistant", "content": ai_reply})
                 st.rerun()
             except Exception as e:
-                st.error(f"连接错误: {e}")
+                st.error(f"Error: {e}")
 
-# --- 7. 评分报告区 (右侧) ---
+# --- 7. Grading Report Section (Right) ---
 with col2:
     if st.session_state.report:
-        st.markdown("### 📝 考核成绩单")
+        st.markdown("### 📝 Performance Report")
+        # Apply CSS class 'score-box' which now forces dark text
         st.markdown(f"<div class='score-box'>{st.session_state.report}</div>", unsafe_allow_html=True)
         
-        # 生成可下载的文本内容
-        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-        log_content = f"Ultech Training Report\nTime: {timestamp}\nScenario: {scenario}\n\n"
-        log_content += "="*20 + "\nFULL CHAT LOG\n" + "="*20 + "\n\n"
+        # Prepare File Content
+        current_date = datetime.datetime.now().strftime("%Y-%m-%d")
+        timestamp = datetime.datetime.now().strftime("%H:%M:%S")
+        
+        # Safe filename generation
+        safe_name = "".join([c for c in user_name if c.isalpha() or c.isdigit() or c==' ']).strip().replace(" ", "_")
+        file_name = f"{safe_name}_{current_date}_Attempt-{st.session_state.attempt_count}.txt"
+        
+        log_content = f"Ultech Training Report\n"
+        log_content += f"Staff Name: {user_name}\n"
+        log_content += f"Role: {user_role}\n"
+        log_content += f"Date: {current_date} Time: {timestamp}\n"
+        log_content += f"Scenario: {scenario}\n"
+        log_content += "="*30 + "\nEVALUATION\n" + "="*30 + "\n"
+        log_content += st.session_state.report + "\n\n"
+        log_content += "="*30 + "\nFULL CHAT LOG\n" + "="*30 + "\n"
         
         for m in st.session_state.messages:
             if m["role"] != "system":
-                role = "Staff" if m["role"] == "user" else "Customer"
-                log_content += f"[{role}]: {m['content']}\n"
+                role_label = "STAFF" if m["role"] == "user" else "CUSTOMER"
+                log_content += f"[{role_label}]: {m['content']}\n"
         
-        log_content += "\n\n" + "="*20 + "\nEVALUATION\n" + "="*20 + "\n\n"
-        log_content += st.session_state.report
-        
-        # 下载按钮
+        # Download Button
         st.download_button(
-            label="📥 下载完整报告 (发给主管)",
+            label=f"📥 Download Report ({file_name})",
             data=log_content,
-            file_name=f"Training_Report_{timestamp.replace(':', '-')}.txt",
+            file_name=file_name,
             mime="text/plain"
         )
     else:
-        st.info("💡 提示：\n完成对话后，点击左侧侧边栏的 **“🏁 结束对话并评分”** 按钮，即可查看分数和下载报告。")
+        st.info("💡 **Instructions:**\n1. Enter your **Name** in the sidebar.\n2. Complete the roleplay.\n3. Click **'🏁 Finish & Grade'** to see your score.")
