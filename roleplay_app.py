@@ -1,235 +1,219 @@
 import streamlit as st
 from openai import OpenAI
+import datetime
 
-# --- 1. 页面基础配置 ---
-st.set_page_config(page_title="Ultech Aussie Roleplay", page_icon="🦘", layout="centered")
+# --- 1. 页面配置 ---
+st.set_page_config(page_title="Ultech 实战考核系统", page_icon="🎓", layout="wide")
 
-# --- 2. CSS 美化样式 ---
+# --- 2. 样式优化 ---
 st.markdown("""
 <style>
-    .user-msg {
-        background-color: #dcf8c6;
-        padding: 10px;
-        border-radius: 10px;
-        margin-bottom: 10px;
-        text-align: right;
-    }
-    .bot-msg {
-        background-color: #f1f0f0;
-        padding: 10px;
-        border-radius: 10px;
-        margin-bottom: 10px;
-        text-align: left;
-    }
-    .stTextInput>div>div>input {
-        background-color: #fafafa;
-    }
+    .user-msg { background-color: #dcf8c6; padding: 10px; border-radius: 10px; margin-bottom: 10px; text-align: right; color: black; }
+    .bot-msg { background-color: #f0f2f6; padding: 10px; border-radius: 10px; margin-bottom: 10px; text-align: left; color: black; }
+    .score-box { border: 2px solid #4CAF50; padding: 20px; border-radius: 10px; background-color: #e8f5e9; margin-top: 20px; }
+    .stButton>button { width: 100%; border-radius: 5px; font-weight: bold; }
 </style>
 """, unsafe_allow_html=True)
 
-# --- 3. 核心角色库 (10 Personas) ---
+# --- 3. 角色库 (保持原有的丰富性) ---
 PERSONAS = {
-    # === 🟢 简单模式：基础流程训练 ===
     "🟢 The Aussie Tradie (Dazza)": """
-        [Role] You are 'Dazza', a construction worker (Tradie) in high-vis workwear.
-        [Context] You just finished work. Your hands are dirty. You want a strong case for your iPhone 13.
-        [Personality] Friendly, loud, uses heavy slang ("G'day mate", "Flat out like a lizard drinking", "Ta").
-        [Trigger]
-        - You stare at the "OtterBox" style cases for 5 seconds (Testing '3-Second Rule').
-        - If they hand you a case without offering to clean your phone first [Cite: Sales Manual], say: "Mate, my phone's filthy, reckon it'll fit?"
-        - You want something "tough as nails".
+        [Role] You are 'Dazza', a construction worker. [Personality] Friendly, heavy slang ("G'day", "Reckon").
+        [Trigger] Hands dirty. Want tough case. Test if they clean phone before trying case.
     """,
-
     "🟢 The Confused Grandma (Margaret)": """
-        [Role] You are 'Margaret', a sweet 75-year-old lady.
-        [Context] Your grandson gave you this iPhone 11, but you forgot the passcode. You want it reset.
-        [Personality] Slow-paced, apologetic, easily confused.
-        [Trigger]
-        - You say: "I just want to see photos of my cat, but it's locked."
-        - If they say "We will wipe your data", you get scared: "Oh no, will I lose Fluffy's photos?"
-        - Test if they explain 'Data Loss Risk' gently but clearly [Cite: Intake SOP].
+        [Role] 'Margaret', 75yo. [Context] Forgot passcode. [Trigger] Scared of data loss. Test data privacy explanation.
     """,
-
     "🟢 The Backpacker (Sven)": """
-        [Role] You are 'Sven', a German backpacker travelling Australia.
-        [Context] You dropped your phone in the toilet at a hostel.
-        [Personality] Direct, urgent, flight leaves in 2 days.
-        [Trigger]
-        - You ask: "I put it in rice, is that good?" (Test if they correct the Rice Myth professionally).
-        - You demand a guarantee: "I need it 100% working for my flight."
-        - Test if they explain 'Liquid Damage Unpredictability' [Cite: Intake SOP].
+        [Role] 'Sven', German. [Context] Dropped in toilet. [Trigger] Asks about rice myth. Demands 100% guarantee.
     """,
-
-    # === 🟡 中等模式：进阶话术训练 ===
     "🟡 The Influencer (Bella)": """
-        [Role] You are 'Bella', a Gen Z TikToker.
-        [Context] You want a new case that looks cute for mirror selfies. You have an iPhone 14 Pro Max.
-        [Personality] On her phone constantly, impatient, cares about aesthetics.
-        [Trigger]
-        - You are 'Just Looking' at first.
-        - You ask: "Will this case block my camera?"
-        - Opportunity for Upsell: You have no lens protector. If they don't recommend a 'Camera Lens Protector' to save future repairs, you just buy the case and leave [Cite: Sales Manual Upsell].
+        [Role] 'Bella', Gen Z. [Context] Wants cute case. [Trigger] Upsell opportunity (Lens protector). Impatient.
     """,
-
     "🟡 The Paranoid Professional (Mr. Smith)": """
-        [Role] You are a corporate lawyer in a suit.
-        [Context] Screen repair needed. You have sensitive client emails on your phone.
-        [Personality] Cold, suspicious, professional.
-        [Trigger]
-        - You ask: "Do you need my passcode? I have confidential data."
-        - If they demand the PIN without the privacy script ("We only test functions, not view data" [Cite: Intake SOP 4.2]), you refuse service.
-        - You watch them closely.
+        [Role] Lawyer. [Context] Sensitive data. [Trigger] Refuse PIN unless privacy script used correctly.
     """,
-
     "🟡 The Rush Hour Customer (Jimmy)": """
-        [Role] You are 'Jimmy', a delivery driver.
-        [Context] Cracked screen. You are double-parked outside.
-        [Personality] Extremely rushed, checking watch.
-        [Trigger]
-        - "How long? I got 10 minutes mate."
-        - Test if they manage expectations correctly (20-60 mins) or if they over-promise just to get the sale [Cite: Intake SOP].
-        - If they say "10 mins", you come back in 10 mins and get angry if it's not done.
+        [Role] Delivery driver. [Context] In a rush. [Trigger] Test expectation management (Time quote).
     """,
-
-    "🟡 The Discount Hunter (Cheap Charlie)": """
-        [Role] You are 'Charlie'.
-        [Context] You need a screen repair but you saw a cheaper price on Gumtree.
-        [Personality] Bargain hunter, compares prices aggressively.
-        [Trigger]
-        - "The shop down the road does it for $50. Why are you $150?"
-        - Test if they use the 'Quality/Warranty' explanation or just say "No".
-        - If they offer 'Membership' (5% back) [Cite: Sales Manual], you might accept.
+    "🟡 The Discount Hunter (Charlie)": """
+        [Role] Bargain hunter. [Trigger] Compares price with Gumtree. Test Membership/Quality value prop.
     """,
-
-    # === 🔴 困难模式：Boss战 (客诉与红线) ===
     "🔴 The 'Warranty Loophole' Boss (Bruce)": """
-        [Role] You are 'Bruce'. You are angry.
-        [Context] You fixed your screen here last week. You dropped it yesterday (small drop), and now there are lines on the screen.
-        [Personality] Aggressive, loud, interrupts.
-        [Trigger]
-        - "You guys used a cheap part! It's broken again and I didn't even touch it!" (Lying).
-        - If they blame you immediately ("You dropped it"), you threaten Fair Trading [Cite: Difficult Manual].
-        - You only calm down if they follow the 6-Step SOP (Empathy -> Check Record -> Ease Money Pain...).
+        [Role] Angry Bruce. [Context] Screen broke again. [Trigger] Blames quality. Test empathy & non-confrontation.
     """,
-
     "🔴 The 'It Should Be Waterproof' Guy (Tom)": """
-        [Role] You are 'Tom'.
-        [Context] You got a screen repair last month. Yesterday you took it swimming and it died.
-        [Personality] Shocked, feels cheated.
-        [Trigger]
-        - "You fixed my phone, so it should be waterproof like new! Now it's dead!"
-        - Test if they explained the 'Resealing vs Factory Waterproof' distinction [Cite: Difficult Manual].
-        - You demand a free new phone. (Test Escalation to Manager rule).
+        [Role] Shocked Tom. [Context] Water damage after repair. [Trigger] Test waterproof vs water resistant explanation.
     """,
-
     "🔴 The 'I Know Your Boss' (Karen)": """
-        [Role] You are 'Karen'.
-        [Context] You want a free screen protector replacement because yours has a bubble.
-        [Personality] Entitled, name-dropper.
-        [Trigger]
-        - "I know the owner of Ultech perfectly well. Just give me a free one, he won't mind."
-        - Test if they stick to the 'Process Protection' or give in to pressure.
-        - If they refuse politely ("I'd love to help, but the system requires..."), you respect them. If they just say "No", you yell.
+        [Role] Entitled Karen. [Trigger] Demands freebie. Test adherence to process vs pressure.
     """
 }
 
-# --- 4. 侧边栏与设置 ---
+# --- 4. 初始化 ---
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+if "report" not in st.session_state:
+    st.session_state.report = None
+
+# --- 5. 侧边栏：控制台 ---
 with st.sidebar:
-    st.image("https://cdn-icons-png.flaticon.com/512/323/323306.png", width=50) # 袋鼠图标
-    st.title("Ultech Aussie Training")
-    st.caption("Pure English | Single Engine | Local Culture")
+    st.image("https://cdn-icons-png.flaticon.com/512/3135/3135715.png", width=50)
+    st.title("Ultech 考核系统")
+    st.caption("实战演练 -> 智能评分 -> 导出报告")
     
     api_key = st.text_input("OpenAI API Key", type="password")
     
-    st.markdown("### Choose Your Opponent")
+    st.markdown("### 1. 选择考题")
+    difficulty = st.selectbox("难度筛选:", ["全部", "🟢 简单", "🟡 进阶", "🔴 困难"])
     
-    # 难度过滤器
-    difficulty = st.selectbox(
-        "Select Difficulty:", 
-        ["All Levels", "🟢 Easy (Novice)", "🟡 Medium (Advanced)", "🔴 Hard (Expert)"]
-    )
-    
-    # 根据难度过滤角色列表
-    if difficulty == "🟢 Easy (Novice)":
+    # 筛选逻辑
+    if difficulty == "🟢 简单":
         options = [k for k in PERSONAS.keys() if "🟢" in k]
-    elif difficulty == "🟡 Medium (Advanced)":
+    elif difficulty == "🟡 进阶":
         options = [k for k in PERSONAS.keys() if "🟡" in k]
-    elif difficulty == "🔴 Hard (Expert)":
+    elif difficulty == "🔴 困难":
         options = [k for k in PERSONAS.keys() if "🔴" in k]
     else:
         options = list(PERSONAS.keys())
         
-    scenario = st.selectbox("Select Character:", options)
+    scenario = st.selectbox("当前角色:", options)
     
     st.markdown("---")
-    st.markdown("**Tip:** Treat 'Bruce' carefully. One wrong word and he calls Fair Trading!")
+    st.markdown("### 2. 结束与重置")
     
-    if st.button("🔄 Start New Chat / Reset"):
+    # 结束考核按钮
+    if st.button("🏁 结束对话并评分 (Finish & Grade)"):
+        if not api_key:
+            st.error("请先输入 API Key")
+        elif len(st.session_state.messages) < 3:
+            st.warning("对话太短，无法评分。请多聊几句。")
+        else:
+            with st.spinner("AI 考官正在分析你的表现..."):
+                client = OpenAI(api_key=api_key)
+                # 提取纯对话文本
+                conversation_text = ""
+                for m in st.session_state.messages:
+                    if m["role"] != "system":
+                        conversation_text += f"{m['role'].upper()}: {m['content']}\n"
+                
+                # 考官 Prompt
+                eval_prompt = f"""
+                你是一位资深的门店培训主管。请根据以下对话记录，对员工的表现进行严厉但客观的考核。
+                
+                【当前场景角色】: {scenario}
+                【SOP 考核点】:
+                1. 销售场景: 是否确认型号？是否做 Upsell？态度是否自然（非强推）？
+                2. 维修场景: 是否提示风险（数据/FaceID/进水）？是否打破期望（Timeline/Price）？
+                3. 客诉场景: 是否先共情？是否避免直接反驳？是否遵循 Escalation 流程？
+                
+                【输出要求】:
+                请生成一份中文报告，包含：
+                1. **最终得分** (0-100分)
+                2. **亮点 (Highlights)**
+                3. **不足 (Weaknesses)** - 指出具体哪句话说错了或遗漏了什么 SOP。
+                4. **改进建议 (Action Plan)**
+                
+                【对话记录】:
+                {conversation_text}
+                """
+                
+                try:
+                    res = client.chat.completions.create(
+                        model="gpt-4o",
+                        messages=[{"role": "system", "content": eval_prompt}],
+                        temperature=0.7
+                    )
+                    st.session_state.report = res.choices[0].message.content
+                except Exception as e:
+                    st.error(f"评分失败: {e}")
+
+    # 重置按钮
+    if st.button("🔄 开启新一轮 (Reset)"):
         st.session_state.messages = []
+        st.session_state.report = None
         st.rerun()
 
-# --- 5. 初始化与主界面 ---
-if "messages" not in st.session_state:
-    st.session_state.messages = []
-
-st.title("🦘 Ultech Aussie Roleplay")
-st.subheader(scenario)
+# --- 6. 主界面 ---
+st.title("🎓 Ultech 实战考核")
+st.subheader(f"正在对战: {scenario}")
 
 if not api_key:
-    st.warning("Please enter your OpenAI API Key in the sidebar to start.")
+    st.info("👈 请在左侧侧边栏输入 API Key 以开始。")
     st.stop()
 
 client = OpenAI(api_key=api_key)
 
-# 如果对话为空，加载系统提示词并生成第一句开场白
+# 自动开场
 if not st.session_state.messages:
-    # 1. 埋入系统提示词 (System Prompt)
     st.session_state.messages.append({"role": "system", "content": PERSONAS[scenario]})
-    
-    # 2. 生成 AI 的第一句话
-    with st.spinner("Customer is walking in..."):
-        try:
-            first_msg = client.chat.completions.create(
-                model="gpt-4o",
-                messages=st.session_state.messages,
-                temperature=0.7
-            )
-            welcome_msg = first_msg.choices[0].message.content
-            st.session_state.messages.append({"role": "assistant", "content": welcome_msg})
-        except Exception as e:
-            st.error(f"Error connecting to OpenAI: {e}")
+    try:
+        first_msg = client.chat.completions.create(
+            model="gpt-4o",
+            messages=st.session_state.messages
+        )
+        st.session_state.messages.append({"role": "assistant", "content": first_msg.choices[0].message.content})
+    except:
+        pass
 
-# --- 6. 显示聊天记录 ---
-for msg in st.session_state.messages:
-    if msg["role"] == "user":
-        with st.chat_message("user", avatar="👤"):
-            st.write(msg["content"])
-    elif msg["role"] == "assistant":
-        with st.chat_message("assistant", avatar="🦘"):
-            st.write(msg["content"])
+# 显示对话区（两栏布局：左边对话，右边如果生成了报告则显示报告）
+col1, col2 = st.columns([2, 1])
 
-# --- 7. 聊天输入与逻辑 ---
-if user_input := st.chat_input("Type your response here..."):
-    # 1. 显示用户输入
-    st.session_state.messages.append({"role": "user", "content": user_input})
-    with st.chat_message("user", avatar="👤"):
-        st.write(user_input)
+with col1:
+    chat_container = st.container()
+    with chat_container:
+        for msg in st.session_state.messages:
+            if msg["role"] == "user":
+                st.markdown(f"<div class='user-msg'>👤 <b>You:</b><br>{msg['content']}</div>", unsafe_allow_html=True)
+            elif msg["role"] == "assistant":
+                st.markdown(f"<div class='bot-msg'>🦘 <b>{scenario.split('(')[0]}:</b><br>{msg['content']}</div>", unsafe_allow_html=True)
 
-    # 2. 生成 AI 回复
-    with st.spinner("Customer is thinking..."):
-        try:
-            response = client.chat.completions.create(
-                model="gpt-4o", 
-                messages=st.session_state.messages,
-                temperature=0.7, 
-                max_tokens=150
-            )
-            ai_reply = response.choices[0].message.content
-            
-            # 3. 显示 AI 回复
-            st.session_state.messages.append({"role": "assistant", "content": ai_reply})
-            with st.chat_message("assistant", avatar="🦘"):
-                st.write(ai_reply)
+    # 输入框
+    if user_input := st.chat_input("请输入英文回复..."):
+        st.session_state.messages.append({"role": "user", "content": user_input})
+        st.rerun()
+
+# AI 回复逻辑 (在重运行后触发)
+if st.session_state.messages and st.session_state.messages[-1]["role"] == "user":
+    with col1:
+        with st.spinner("对方正在输入..."):
+            try:
+                response = client.chat.completions.create(
+                    model="gpt-4o",
+                    messages=st.session_state.messages,
+                    temperature=0.7
+                )
+                ai_reply = response.choices[0].message.content
+                st.session_state.messages.append({"role": "assistant", "content": ai_reply})
+                st.rerun()
+            except Exception as e:
+                st.error(f"连接错误: {e}")
+
+# --- 7. 评分报告区 (右侧) ---
+with col2:
+    if st.session_state.report:
+        st.markdown("### 📝 考核成绩单")
+        st.markdown(f"<div class='score-box'>{st.session_state.report}</div>", unsafe_allow_html=True)
         
-        except Exception as e:
-            st.error("Connection Error. Please check your API Key.")
+        # 生成可下载的文本内容
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+        log_content = f"Ultech Training Report\nTime: {timestamp}\nScenario: {scenario}\n\n"
+        log_content += "="*20 + "\nFULL CHAT LOG\n" + "="*20 + "\n\n"
+        
+        for m in st.session_state.messages:
+            if m["role"] != "system":
+                role = "Staff" if m["role"] == "user" else "Customer"
+                log_content += f"[{role}]: {m['content']}\n"
+        
+        log_content += "\n\n" + "="*20 + "\nEVALUATION\n" + "="*20 + "\n\n"
+        log_content += st.session_state.report
+        
+        # 下载按钮
+        st.download_button(
+            label="📥 下载完整报告 (发给主管)",
+            data=log_content,
+            file_name=f"Training_Report_{timestamp.replace(':', '-')}.txt",
+            mime="text/plain"
+        )
+    else:
+        st.info("💡 提示：\n完成对话后，点击左侧侧边栏的 **“🏁 结束对话并评分”** 按钮，即可查看分数和下载报告。")
